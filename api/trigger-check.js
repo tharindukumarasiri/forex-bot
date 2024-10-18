@@ -68,40 +68,50 @@ async function sendDiscordMessage(message) {
     });
 }
 
-async function checkRate() {
-    const currentRate = await getExchangeRate();
+module.exports = async (req, res) => {
+    console.log('Manual trigger of exchange rate check.');
 
-    if (currentRate.USD !== null && currentRate.SGD !== null) {
-        // For USD
-        const previousUSDRate = await getPreviousRate('USD');
-        if (previousUSDRate !== null) {
-            if (currentRate.USD > previousUSDRate) {
-                await sendDiscordMessage(`USD rate has gone up: ${currentRate.USD} 🟢`);
-            } else if (currentRate.USD < previousUSDRate) {
-                await sendDiscordMessage(`USD rate has gone down: ${currentRate.USD} 🔴`);
+    try {
+        const currentRate = await getExchangeRate();
+
+        if (currentRate.USD !== null && currentRate.SGD !== null) {
+            // For USD
+            const previousUSDRate = await getPreviousRate('USD');
+            if (previousUSDRate !== null) {
+                if (currentRate.USD > previousUSDRate) {
+                    await sendDiscordMessage(`USD rate has gone up: ${currentRate.USD} 🟢 (+${(currentRate.USD - previousUSDRate).toFixed(2)})`);
+                } else if (currentRate.USD < previousUSDRate) {
+                    await sendDiscordMessage(`USD rate has gone down: ${currentRate.USD} 🔴 (-${(previousUSDRate - currentRate.USD).toFixed(2)})`);
+                }
+            } else {
+                await sendDiscordMessage(`USD rate ${currentRate.USD}`);
             }
-        } else {
-            await sendDiscordMessage(`USD rate ${currentRate.USD}`);
-        }
-        await saveRateToDB(currentRate.USD, 'USD');
 
-        // For SGD
-        const previousSGDRate = await getPreviousRate('SGD');
-        if (previousSGDRate !== null) {
-            if (currentRate.SGD > previousSGDRate) {
-                await sendDiscordMessage(`SGD rate has gone up: ${currentRate.SGD} 🟢`);
-            } else if (currentRate.SGD < previousSGDRate) {
-                await sendDiscordMessage(`SGD rate has gone down: ${currentRate.SGD} 🔴`);
+            if (previousUSDRate !== currentRate.USD)
+                await saveRateToDB(currentRate.USD, 'USD');
+
+            // For SGD
+            const previousSGDRate = await getPreviousRate('SGD');
+            if (previousSGDRate !== null) {
+                if (currentRate.SGD > previousSGDRate) {
+                    await sendDiscordMessage(`SGD rate has gone up: ${currentRate.SGD} 🟢 (+${(currentRate.SGD - previousSGDRate).toFixed(2)})`);
+                } else if (currentRate.SGD < previousSGDRate) {
+                    await sendDiscordMessage(`SGD rate has gone down: ${currentRate.SGD} 🔴 (-${(previousSGDRate - currentRate.SGD).toFixed(2)})`);
+                }
+            } else {
+                await sendDiscordMessage(`SGD rate ${currentRate.SGD}`);
             }
-        } else {
-            await sendDiscordMessage(`SGD rate ${currentRate.SGD}`);
-        }
-        await saveRateToDB(currentRate.SGD, 'SGD');
 
-    } else {
-        console.error('Could not extract exchange rate.');
+            if (previousSGDRate !== currentRate.SGD)
+                await saveRateToDB(currentRate.SGD, 'SGD');
+
+        } else {
+            console.error('Could not extract exchange rate.');
+        }
+
+        res.status(200).send('Exchange rate check triggered successfully.');
+    } catch (error) {
+        console.error('Error during manual trigger:', error);
+        res.status(500).send('Failed to check exchange rates.');
     }
-}
-
-// For testing locally, run immediately
-checkRate();
+};
