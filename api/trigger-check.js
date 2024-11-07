@@ -70,7 +70,10 @@ async function sendDiscordMessage(message) {
 
 module.exports = async (req, res) => {
     console.log('Manual trigger of exchange rate check.');
-
+    
+    // Set Cache-Control header to prevent caching
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
     try {
         const currentRate = await getExchangeRate();
 
