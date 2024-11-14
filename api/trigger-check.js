@@ -112,7 +112,11 @@ module.exports = async (req, res) => {
             console.error('Could not extract exchange rate.');
         }
 
-        res.status(200).send('Exchange rate check triggered successfully.');
+        res.status(200).send(`
+        Exchange rate check triggered successfully.
+        USD buy rate: ${currentRate.USD}
+        SGD buy rate: ${currentRate.SGD}
+        `);
     } catch (error) {
         console.error('Error during manual trigger:', error);
         res.status(500).send('Failed to check exchange rates.');
