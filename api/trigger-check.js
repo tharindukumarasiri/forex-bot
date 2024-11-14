@@ -113,8 +113,8 @@ module.exports = async (req, res) => {
         }
 
         res.status(200).send(`
-        Exchange rate check triggered successfully.
-        USD buy rate: ${currentRate.USD}
+        Exchange rate check triggered successfully.\n\n
+        USD buy rate: ${currentRate.USD}\n
         SGD buy rate: ${currentRate.SGD}
         `);
     } catch (error) {
