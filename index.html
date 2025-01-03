@@ -1,0 +1,66 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exchange Rates</title>
+    <style>
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        font-size: 18px;
+        text-align: left;
+      }
+      th,
+      td {
+        padding: 12px;
+        border: 1px solid #ddd;
+      }
+      th {
+        background-color: #f4f4f4;
+      }
+    </style>
+    <script>
+      async function fetchExchangeRates() {
+        try {
+          const response = await fetch("/api/trigger-check");
+          const data = await response.json(); // Update your API to return JSON data
+
+          const tableBody = document.querySelector("tbody");
+
+          const row = `<tr>
+                          <td>USD</td>
+                          <td>${data?.USD}</td>
+                      </tr>
+                      <tr>
+                          <td>SGD</td>
+                          <td>${data?.SGD}</td>
+                      </tr>`;
+          tableBody.innerHTML += row;
+        } catch (err) {
+          console.log("ERROR: ", err);
+        }
+      }
+
+      fetchExchangeRates();
+    </script>
+  </head>
+  <body>
+    <h1>Exchange Rates (HSBC)</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>Currency</th>
+          <th>Buying Rate</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <a href="https://cal.lk/unittrust/qef-vs-aspi/" target="_blank"
+      >Check Equity Fund Table</a
+    >
+  </body>
+</html>

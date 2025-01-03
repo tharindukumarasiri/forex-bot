@@ -2,7 +2,6 @@ require('dotenv').config();
 const fetch = require('node-fetch');
 const pdf = require('pdf-parse');
 const supabase = require('@supabase/supabase-js');
-const cron = require('node-cron');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -70,10 +69,10 @@ async function sendDiscordMessage(message) {
 
 module.exports = async (req, res) => {
     console.log('Manual trigger of exchange rate check.');
-    
+
     // Set Cache-Control header to prevent caching
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    
+
     try {
         const currentRate = await getExchangeRate();
 
@@ -112,7 +111,10 @@ module.exports = async (req, res) => {
             console.error('Could not extract exchange rate.');
         }
 
-        res.status(200).send(`usd: ${currentRate.USD},  \n   sgd: ${currentRate.SGD}`);
+        res.status(200).send({
+            USD: currentRate.USD,
+            SGD: currentRate.SGD
+        });
     } catch (error) {
         console.error('Error during manual trigger:', error);
         res.status(500).send('Failed to check exchange rates.');
