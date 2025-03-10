@@ -10,11 +10,13 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@sparticuz/chromium": "^133.0.0",
     "@supabase/supabase-js": "^2.45.4",
+    "chrome-aws-lambda": "^10.1.0",
     "dotenv": "^16.4.5",
     "node-fetch": "^2.7.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
-    "puppeteer": "^24.4.0"
+    "puppeteer-core": "^24.4.0"
   }
 }

@@ -1,7 +1,8 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
 const supabase = require('@supabase/supabase-js');
-const puppeteer = require('puppeteer');
+const chromium = require('@sparticuz/chromium');
+const puppeteer = require('puppeteer-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -50,10 +51,15 @@ async function getSellingPrice() {
 
     try {
         console.log('Launching headless browser...');
-        browser = await puppeteer.launch({
-            headless: "new",  // Use the new headless mode
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        // Configure browser for different environments
+        const options = {
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+        };
+
+        browser = await puppeteer.launch(options);
 
         const page = await browser.newPage();
 
