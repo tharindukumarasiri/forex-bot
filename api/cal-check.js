@@ -65,7 +65,7 @@ async function getSellingPrice() {
 
         // Set a timeout for the navigation
         await page.goto('https://cal.lk/unittrust/calculator/?fund=QEF', {
-            timeout: 30000,
+            timeout: 10000,
             waitUntil: 'networkidle2'  // Wait until network is idle
         });
 
@@ -99,7 +99,7 @@ async function getSellingPrice() {
 
         // Set a timeout for the navigation
         await page.goto('https://cal.lk/unittrust/calculator/?fund=BF', {
-            timeout: 30000,
+            timeout: 10000,
             waitUntil: 'networkidle2'  // Wait until network is idle
         });
 
