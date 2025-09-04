@@ -21,6 +21,16 @@
       th {
         background-color: #f4f4f4;
       }
+      h2 {
+        margin-top: 50px;
+      }
+      .calculatorContainer {
+        margin-top: 10px;
+        margin-bottom: 20px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
     </style>
     <script>
       async function fetchExchangeRates() {
@@ -59,8 +69,64 @@
       <tbody></tbody>
     </table>
 
-    <a href="https://cal.lk/unittrust/qef-vs-aspi/" target="_blank"
-      >Check Equity Fund Table</a
-    >
+    <a href="https://cal.lk/unittrust/qef-vs-aspi/" target="_blank">Check Equity Fund Table</a>
+    <h2>Calculate AER</h2>
+    <div class="calculatorContainer">
+      <input id="endPrice" placeholder="Ending price" type="number" />
+      <input id="endDate" placeholder="Ending date" type="date" />
+      <input id="startPrice" placeholder="Starting price" type="number" />
+      <input id="startDate" placeholder="Starting date" type="date" />
+      <input id="years" placeholder="Years" type="number" />
+      <input id="days" placeholder="Days" type="number" />
+    </div>
+    <button onclick="calculateAER()">Calculate</button>
+    <button onclick="clearAER()">Clear</button>
+
+    <p id="result"></p>
+
+    <script>
+      function calculateAER() {
+        try {
+          const startPrice = parseFloat(document.getElementById("startPrice").value);
+          const endPrice = parseFloat(document.getElementById("endPrice").value);
+          const startDate = new Date(document.getElementById("startDate").value);
+          const endDate = new Date(document.getElementById("endDate").value);
+          const years = parseFloat(document.getElementById("years").value);
+          const days = parseFloat(document.getElementById("days").value);
+
+          const priceDeviation = endPrice / startPrice;
+          let percentage = 0;
+
+          if (!isNaN(startDate) && !isNaN(endDate)) {
+            const diffTime = Math.abs(endDate - startDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            const exponentValue = 365 / diffDays;
+            const exponent = priceDeviation ** exponentValue;
+            const minusOne = exponent - 1;
+            percentage = (minusOne * 100).toFixed();
+          } else {
+            const totalDays = (years || 0) * 365 + (days || 0);
+            const exponentValue = 365 / totalDays;
+            const exponent = priceDeviation ** exponentValue;
+            const minusOne = exponent - 1;
+            percentage = (minusOne * 100).toFixed();
+          }
+
+          document.getElementById("result").innerText = `AER: ${percentage}%`;
+        } catch {
+          document.getElementById("result").innerText = "Error calculating AER";
+        }
+      }
+      function clearAER() {
+        document.getElementById("result").innerText = "";
+        document.getElementById("startPrice").value = "";
+        document.getElementById("startDate").value = "";
+        document.getElementById("endPrice").value = "";
+        document.getElementById("endDate").value = "";
+        document.getElementById("years").value = "";
+        document.getElementById("days").value = "";
+      }
+    </script>
   </body>
 </html>
