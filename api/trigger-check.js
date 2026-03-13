@@ -1,8 +1,6 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
 const supabase = require('@supabase/supabase-js');
-const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -11,49 +9,21 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function getExchangeRate() {
-    let browser = null;
-    try {
-        const options = {
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-        };
-
-        browser = await puppeteer.launch(options);
-        const page = await browser.newPage();
-
-        await page.goto('https://www.sampath.lk/rates-and-charges?activeTab=exchange-rates', {
-            timeout: 30000,
-            waitUntil: 'networkidle2'
-        });
-
-        await page.waitForSelector('table', { timeout: 15000 });
-
-        const USD = await page.evaluate(() => {
-            const rows = document.querySelectorAll('table tr');
-            for (const row of rows) {
-                const cells = row.querySelectorAll('td');
-                if (cells.length > 0 && cells[0].textContent.trim().toUpperCase().includes('USD')) {
-                    // T/T Buying is the first rate column (index 1)
-                    const val = parseFloat(cells[1].textContent.trim().replace(/,/g, ''));
-                    return isNaN(val) ? null : val;
-                }
-            }
-            return null;
-        });
-
-        console.log('Extracted USD T/T Buying:', USD);
-        return { USD };
-    } catch (error) {
-        console.error('Scraper error:', error);
-        return { USD: null };
-    } finally {
-        if (browser) {
-            await browser.close();
-            console.log('Browser closed');
+    const res = await fetch('https://www.sampath.lk/api/exchange-rates', {
+        headers: {
+            'Referer': 'https://www.sampath.lk/rates-and-charges?activeTab=exchange-rates',
+            'Origin': 'https://www.sampath.lk',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
         }
-    }
+    });
+
+    const body = await res.json();
+    const usd = body.data.find(d => d.CurrCode === 'USD');
+    const USD = usd ? parseFloat(usd.TTBUY) : null;
+
+    console.log('Extracted USD T/T Buying:', USD);
+    return { USD };
 }
 
 async function saveRateToDB(rate, currency) {
