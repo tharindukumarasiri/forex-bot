@@ -1,7 +1,8 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
-const pdf = require('pdf-parse');
 const supabase = require('@supabase/supabase-js');
+const chromium = require('@sparticuz/chromium');
+const puppeteer = require('puppeteer-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -10,24 +11,48 @@ const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 async function getExchangeRate() {
-    const url = 'https://www.hsbc.lk/content/dam/hsbc/lk/documents/tariffs/foreign-exchange-rates.pdf';
-    const response = await fetch(url);
+    let browser = null;
+    try {
+        const options = {
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+        };
 
-    const arrayBuffer = await response.arrayBuffer();
+        browser = await puppeteer.launch(options);
+        const page = await browser.newPage();
 
-    const dataBuffer = Buffer.from(arrayBuffer);
+        await page.goto('https://www.sampath.lk/rates-and-charges?activeTab=exchange-rates', {
+            timeout: 30000,
+            waitUntil: 'networkidle2'
+        });
 
-    // Parse PDF with pdf-parse
-    const data = await pdf(dataBuffer);
+        await page.waitForSelector('table', { timeout: 15000 });
 
-    // Extract Singapore Dollar exchange rate from the text
-    const rawText = data.text;
-    const matchUSD = rawText.match(/USD\s+(\d+\.\d{2})/);
-    const matchSGD = rawText.match(/SGD\s+(\d+\.\d{2})/);
+        const USD = await page.evaluate(() => {
+            const rows = document.querySelectorAll('table tr');
+            for (const row of rows) {
+                const cells = row.querySelectorAll('td');
+                if (cells.length > 0 && cells[0].textContent.trim().toUpperCase().includes('USD')) {
+                    // T/T Buying is the first rate column (index 1)
+                    const val = parseFloat(cells[1].textContent.trim().replace(/,/g, ''));
+                    return isNaN(val) ? null : val;
+                }
+            }
+            return null;
+        });
 
-    return {
-        USD: matchUSD ? parseFloat(matchUSD[1]) : null,
-        SGD: matchSGD ? parseFloat(matchSGD[1]) : null,
+        console.log('Extracted USD T/T Buying:', USD);
+        return { USD };
+    } catch (error) {
+        console.error('Scraper error:', error);
+        return { USD: null };
+    } finally {
+        if (browser) {
+            await browser.close();
+            console.log('Browser closed');
+        }
     }
 }
 
@@ -76,8 +101,7 @@ module.exports = async (req, res) => {
     try {
         const currentRate = await getExchangeRate();
 
-        if (currentRate.USD !== null && currentRate.SGD !== null) {
-            // For USD
+        if (currentRate.USD !== null) {
             const previousUSDRate = await getPreviousRate('USD');
             if (previousUSDRate !== null) {
                 if (currentRate.USD > previousUSDRate) {
@@ -92,28 +116,12 @@ module.exports = async (req, res) => {
             if (previousUSDRate !== currentRate.USD)
                 await saveRateToDB(currentRate.USD, 'USD');
 
-            // For SGD
-            const previousSGDRate = await getPreviousRate('SGD');
-            if (previousSGDRate !== null) {
-                if (currentRate.SGD > previousSGDRate) {
-                    await sendDiscordMessage(`SGD rate has gone up: ${currentRate.SGD} 🟢 (+${(currentRate.SGD - previousSGDRate).toFixed(2)})`);
-                } else if (currentRate.SGD < previousSGDRate) {
-                    await sendDiscordMessage(`SGD rate has gone down: ${currentRate.SGD} 🔴 (-${(previousSGDRate - currentRate.SGD).toFixed(2)})`);
-                }
-            } else {
-                await sendDiscordMessage(`SGD rate ${currentRate.SGD}`);
-            }
-
-            if (previousSGDRate !== currentRate.SGD)
-                await saveRateToDB(currentRate.SGD, 'SGD');
-
         } else {
             console.error('Could not extract exchange rate.');
         }
 
         res.status(200).send({
-            USD: currentRate.USD,
-            SGD: currentRate.SGD
+            USD: currentRate.USD
         });
     } catch (error) {
         console.error('Error during manual trigger:', error);
