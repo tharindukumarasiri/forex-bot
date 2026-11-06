@@ -9,14 +9,11 @@
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": "26.x"
+  },
   "dependencies": {
-    "@sparticuz/chromium": "^133.0.0",
-    "@supabase/supabase-js": "^2.95.3",
-    "chrome-aws-lambda": "^10.1.0",
-    "dotenv": "^16.6.1",
-    "node-fetch": "^2.7.0",
-    "pdf-lib": "^1.17.1",
-    "pdf-parse": "^1.1.1",
-    "puppeteer-core": "^10.4.0"
+    "@supabase/supabase-js": "^2.119.0",
+    "dotenv": "^18.0.9"
   }
 }

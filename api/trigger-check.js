@@ -1,5 +1,4 @@
-require('dotenv').config();
-const fetch = require('node-fetch');
+require('dotenv').config({ quiet: true });
 const supabase = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
