@@ -1,8 +1,6 @@
 require('dotenv').config();
 const fetch = require('node-fetch');
 const { createClient } = require('@supabase/supabase-js');
-const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer-core');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
@@ -34,11 +32,15 @@ async function getPreviousRate(type) {
         .order('date', { ascending: false })
         .limit(1);
 
-    if (error || !data || data.length === 0) {
+    if (error) {
+        console.error(`Error fetching previous ${type} rate:`, error);
+        return null;
+    }
+    if (!data || data.length === 0) {
         return null;
     }
 
-    return data[0].rate;
+    return Number(data[0].rate);
 }
 
 // ==============================
@@ -46,94 +48,143 @@ async function getPreviousRate(type) {
 // ==============================
 
 async function sendDiscordMessage(message) {
-    await fetch(DISCORD_WEBHOOK_URL, {
+    const res = await fetch(DISCORD_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: message })
     });
+
+    if (!res.ok) {
+        console.error(`Discord webhook failed: HTTP ${res.status}`, await res.text());
+    }
 }
 
 // ==============================
-// Scraper
+// Scrapers
 // ==============================
 
-async function getSellingPrice() {
-    let browser = null;
+const USER_AGENT = 'Mozilla/5.0';
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        console.log('Launching browser...');
-
-        const options = {
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-        };
-
-        browser = await puppeteer.launch(options);
-        const page = await browser.newPage();
-
-        // =========================
-        // QEF (CAL)
-        // =========================
-        await page.goto('https://cal.lk/unittrust/calculator/?fund=QEF', {
-            timeout: 30000,
-            waitUntil: 'networkidle2'
-        });
-
-        const calSelector = '.latest-price span';
-        let QEF = null;
-
-        const QEFExists = await page.$(calSelector) !== null;
-
-        if (QEFExists) {
-            const priceText = await page.evaluate(sel => {
-                const el = document.querySelector(sel);
-                return el ? el.textContent.trim() : null;
-            }, calSelector);
-
-            const match = priceText?.match(/(\d+\.\d+)/);
-            if (match) QEF = parseFloat(match[1]);
-        }
-
-        // =========================
-        // GF (NDB Wealth Growth & Income Fund)
-        // =========================
-        await page.goto('https://ndbwealth.com/', {
-            timeout: 30000,
-            waitUntil: 'networkidle2'
-        });
-
-        await page.waitForSelector('.p-row');
-
-        let GF = await page.evaluate(() => {
-            const rows = document.querySelectorAll('.p-row');
-
-            for (let row of rows) {
-                if (row.innerText.includes('NDB Wealth Growth & Income Fund')) {
-                    const strongTags = row.querySelectorAll('strong');
-                    if (strongTags.length >= 2) {
-                        return parseFloat(strongTags[1].innerText.trim());
-                    }
-                }
-            }
-
-            return null;
-        });
-
-        console.log('Extracted QEF:', QEF);
-        console.log('Extracted GF:', GF);
-
-        return { QEF, GF };
-
-    } catch (error) {
-        console.error('Scraper error:', error);
-        return { QEF: null, GF: null };
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+        return res;
     } finally {
-        if (browser) {
-            await browser.close();
-            console.log('Browser closed');
+        clearTimeout(timer);
+    }
+}
+
+// QEF (CAL Quantitative Equity Fund)
+// The CAL calculator page loads its prices from this JSON endpoint. `valuedate`
+// is the investment start date; LATEST_PRICE is always the latest published
+// price. A fund is left out when valuedate is on or after its latest price date
+// (QEF is published with a lag), so use a date safely in the past.
+async function getQEF() {
+    const valueDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const res = await fetchWithTimeout(
+        `https://cal.lk/wp-admin/admin-ajax.php?action=getUTFundRates&valuedate=${valueDate}`,
+        {
+            headers: {
+                'User-Agent': USER_AGENT,
+                'Accept': 'application/json',
+                'Referer': 'https://cal.lk/unittrust/calculator/?fund=QEF'
+            }
         }
+    );
+
+    const body = await res.json();
+    const fund = (body.UTMS_FUND || []).find(f => String(f.FUND).trim().toUpperCase() === 'QEF');
+    const price = fund ? parseFloat(fund.LATEST_PRICE) : NaN;
+
+    if (!Number.isFinite(price)) throw new Error('QEF not found in CAL response');
+    return Number(price.toFixed(4));
+}
+
+// ASPI (CSE All Share Price Index)
+// Primary source is the Colombo Stock Exchange's own API (used by cse.lk).
+// TradingView's scanner (CSELK:ASI) is used as a fallback.
+async function getASPIFromCSE() {
+    const res = await fetchWithTimeout('https://www.cse.lk/api/aspiData', {
+        method: 'POST',
+        headers: {
+            'User-Agent': USER_AGENT,
+            'Accept': 'application/json',
+            'Referer': 'https://www.cse.lk/'
+        }
+    });
+
+    const body = await res.json();
+    const value = Number(body?.value);
+
+    if (!Number.isFinite(value) || value <= 0) throw new Error('ASPI value missing in CSE response');
+    return value;
+}
+
+async function getASPIFromTradingView() {
+    const res = await fetchWithTimeout(
+        'https://scanner.tradingview.com/symbol?symbol=CSELK%3AASI&fields=close&no_404=true',
+        { headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' } }
+    );
+
+    const body = await res.json();
+    const value = Number(body?.close);
+
+    if (!Number.isFinite(value) || value <= 0) throw new Error('ASPI value missing in TradingView response');
+    return value;
+}
+
+async function getASPI() {
+    let value;
+    try {
+        value = await getASPIFromCSE();
+    } catch (error) {
+        console.error('CSE ASPI source failed, trying TradingView:', error);
+        value = await getASPIFromTradingView();
+    }
+    return Number(value.toFixed(2));
+}
+
+async function getSellingPrice() {
+    const [aspi, qef] = await Promise.allSettled([getASPI(), getQEF()]);
+
+    if (aspi.status === 'rejected') console.error('ASPI scraper error:', aspi.reason);
+    if (qef.status === 'rejected') console.error('QEF scraper error:', qef.reason);
+
+    const ASPI = aspi.status === 'fulfilled' ? aspi.value : null;
+    const QEF = qef.status === 'fulfilled' ? qef.value : null;
+
+    console.log('Extracted ASPI:', ASPI);
+    console.log('Extracted QEF:', QEF);
+
+    return { ASPI, QEF };
+}
+
+// ==============================
+// Notify + persist
+// ==============================
+
+async function processRate(type, current, decimals = 4) {
+    const previous = await getPreviousRate(type);
+
+    if (previous !== null) {
+        if (current > previous) {
+            await sendDiscordMessage(
+                `${type} has gone up: ${current} 🟢 (+${(current - previous).toFixed(decimals)})`
+            );
+        } else if (current < previous) {
+            await sendDiscordMessage(
+                `${type} has gone down: ${current} 🔴 (-${(previous - current).toFixed(decimals)})`
+            );
+        }
+    } else {
+        await sendDiscordMessage(`${type} rate ${current}`);
+    }
+
+    if (previous !== current) {
+        await saveRateToDB(current, type);
     }
 }
 
@@ -148,60 +199,18 @@ module.exports = async (req, res) => {
     try {
         const currentRate = await getSellingPrice();
 
-        if (!currentRate || currentRate.QEF === null || currentRate.GF === null) {
-            return res.status(500).send('Failed to extract rates.');
+        // Handle each one on its own so one failing source does not block
+        // the notification for the other. ASPI is sent first so it shows
+        // above QEF in Discord.
+        if (currentRate.ASPI !== null) await processRate('ASPI', currentRate.ASPI, 2);
+        if (currentRate.QEF !== null) await processRate('QEF', currentRate.QEF, 4);
+
+        const failed = Object.keys(currentRate).filter(k => currentRate[k] === null);
+        if (failed.length > 0) {
+            return res.status(500).json({ ...currentRate, error: `Failed to extract: ${failed.join(', ')}` });
         }
 
-        // ======================
-        // QEF Logic
-        // ======================
-        const previousQEFRate = await getPreviousRate('QEF');
-
-        if (previousQEFRate !== null) {
-            if (currentRate.QEF > previousQEFRate) {
-                await sendDiscordMessage(
-                    `QEF has gone up: ${currentRate.QEF} 🟢 (+${(currentRate.QEF - previousQEFRate).toFixed(4)})`
-                );
-            } else if (currentRate.QEF < previousQEFRate) {
-                await sendDiscordMessage(
-                    `QEF has gone down: ${currentRate.QEF} 🔴 (-${(previousQEFRate - currentRate.QEF).toFixed(4)})`
-                );
-            }
-        } else {
-            await sendDiscordMessage(`QEF rate ${currentRate.QEF}`);
-        }
-
-        if (previousQEFRate !== currentRate.QEF) {
-            await saveRateToDB(currentRate.QEF, 'QEF');
-        }
-
-        // ======================
-        // GF Logic
-        // ======================
-        const previousGFRate = await getPreviousRate('GF');
-
-        if (previousGFRate !== null) {
-            if (currentRate.GF > previousGFRate) {
-                await sendDiscordMessage(
-                    `GF has gone up: ${currentRate.GF} 🟢 (+${(currentRate.GF - previousGFRate).toFixed(4)})`
-                );
-            } else if (currentRate.GF < previousGFRate) {
-                await sendDiscordMessage(
-                    `GF has gone down: ${currentRate.GF} 🔴 (-${(previousGFRate - currentRate.GF).toFixed(4)})`
-                );
-            }
-        } else {
-            await sendDiscordMessage(`GF rate ${currentRate.GF}`);
-        }
-
-        if (previousGFRate !== currentRate.GF) {
-            await saveRateToDB(currentRate.GF, 'GF');
-        }
-
-        return res.status(200).json({
-            QEF: currentRate.QEF,
-            GF: currentRate.GF
-        });
+        return res.status(200).json(currentRate);
 
     } catch (error) {
         console.error('Manual trigger error:', error);
